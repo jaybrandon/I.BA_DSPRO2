@@ -50,6 +50,9 @@ def extract_precipitation(
 
 
 def transform_precipitation(ds: xr.Dataset) -> xr.Dataset:
+    timeline = pd.DatetimeIndex(ds['time'].values)
+    if timeline.inferred_freq != 'MS':
+        print('!!!!!!! timeline is not consistent !!!!!!!')
     ds = ds.resample(time="QS-OCT").sum()
     return ds
 
@@ -83,6 +86,9 @@ def extract_temperature(
 
 
 def transform_temperature(ds: xr.Dataset) -> xr.Dataset:
+    timeline = pd.DatetimeIndex(ds['time'].values)
+    if timeline.inferred_freq != 'MS':
+        print('!!!!!!! timeline is not consistent !!!!!!!')
     ds = ds.resample(time="QS-OCT").mean()
     return ds
 
