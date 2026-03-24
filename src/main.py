@@ -82,12 +82,12 @@ def process_glacier_observation(row) -> dict:
         observation_end=observation_end,
     )
 
-    # numeric/tabular output: keep teammate columns, add satellite features
+    # numeric data
     feature_row = row.drop(labels="geometry").to_dict()
     feature_row.update(results["features"])
     feature_row["obs_id"] = obs_id
 
-    # non-numeric output index: separate references for mask/image data
+    # non-numeric data(mask and image)
     raster_row = {
         "obs_id": obs_id,
         "id": glacier_id,
