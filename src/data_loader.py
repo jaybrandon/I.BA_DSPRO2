@@ -2,18 +2,29 @@ from pathlib import Path
 import geopandas as gpd
 
 
-def load_geometry(data_dir: Path):
+def assign_satellite_label(date):
+    """
+    Assignment of satellite sensor based on timeperiod:
+    Landsat 5: < 2013
+    Landsat 8: 2013 - 2016
+    Sentinel-2: 2017 - Present
+    """
+    year = date.year
+    if year < 2013:
+        return "landsat5"
+    elif 2013 <= year <= 2016:
+        return "landsat8"
+    else:
+        return "sentinel2"
 
-    glacier_path = data_dir / "extended_glacier_metadata.parquet"
-    debris_path = data_dir / "extended_debris_metadata.parquet"
-
-    gdf_ice = gpd.read_parquet(glacier_path)
-    gdf_debris = gpd.read_parquet(debris_path)
-
-    gdf_ice["geometry"] = gdf_ice.geometry.buffer(0)
-    gdf_debris["geometry"] = gdf_debris.geometry.buffer(0)
-
-    gdf_ice = gdf_ice.to_crs(epsg=4326)
-    gdf_debris = gdf_debris.to_crs(epsg=4326)
-
-    return gdf_ice, gdf_debris
+def load_and_prepare_glamos_data(path: Path):
+    gdf = gpd.read_parquet(path)
+    
+    if gdf.crs != "EPSG:4326":
+        gdf = gdf.to_crs(epsg=4326)
+    
+    gdf["geometry"] = gdf.geometry.buffer(0)
+    
+    gdf['satellite'] = gdf['observation_end'].apply(assign_satellite_label)
+    
+    return gdf
