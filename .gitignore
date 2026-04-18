@@ -209,3 +209,9 @@ __marimo__/
 
 # Tmp data
 data/tmp/
+
+# Weights & Biases
+wandb
+
+# Hydra outputs
+outputs
