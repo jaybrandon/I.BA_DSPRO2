@@ -1,0 +1,8 @@
+mode: tune
+seed: 42
+
+wandb:
+  entity: DSPRO2_Group7
+  project: glacier-mass-balance-prediction
+
+model: ???
