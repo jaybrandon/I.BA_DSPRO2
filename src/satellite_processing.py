@@ -1,19 +1,19 @@
+import os
 from pathlib import Path
 
 import ee
 import geopandas as gpd
 import pandas as pd
+from dotenv import load_dotenv
 
 from feature_extraction import extract_glacier_period_features
 from gee_data import get_dem, get_glacier_collection, initialize_gee
 
-PROJECT_ID = "project-8e6c1255-803c-4395-88f"
 BASE_DIR = Path(__file__).resolve().parents[1]
-INPUT_PATH = BASE_DIR / "data" / "glamos_observations_with_geometry.parquet"
-OUTPUT_DIR = BASE_DIR / "data"
-OUTPUT_DIR.mkdir(exist_ok=True)
+OUTPUT_DIR = BASE_DIR / "data" / "processed"
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-MAX_ROWS = 5
+MAX_ROWS = None
 
 
 def assign_satellite_label(date):
@@ -28,9 +28,7 @@ def assign_satellite_label(date):
         return "sentinel2"
 
 
-def load_and_prepare_glamos_data(path: Path) -> gpd.GeoDataFrame:
-    print(f"Loading data from {path}...")
-    gdf = gpd.read_parquet(path)
+def prepare_glamos_data(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     if gdf.crs != "EPSG:4326":
         gdf = gdf.to_crs(epsg=4326)
     gdf["geometry"] = gdf.geometry.buffer(0)
@@ -38,9 +36,17 @@ def load_and_prepare_glamos_data(path: Path) -> gpd.GeoDataFrame:
     return gdf
 
 
-def main():
-    initialize_gee(PROJECT_ID)
-    gdf = load_and_prepare_glamos_data(INPUT_PATH)
+def get_satellite_features(gdf: gpd.GeoDataFrame):
+    load_dotenv()
+    gc_project_id = os.getenv("GC_PROJECT_ID")
+    if gc_project_id is None:
+        print(
+            "Satellite feature extraction failed: GC_PROJECT_ID is not configured in env"
+        )
+        return
+
+    initialize_gee(gc_project_id)
+    gdf = prepare_glamos_data(gdf)
 
     if MAX_ROWS:
         gdf = gdf.head(MAX_ROWS)
@@ -102,19 +108,13 @@ def main():
             print(f"Error on {obs_id}: {e}")
 
     if all_numerical_rows:
-        final_df = pd.DataFrame(all_numerical_rows)
+        df = pd.DataFrame(all_numerical_rows)
 
-        final_df = final_df.dropna(subset=["area_m2", "sla"], how="all")
+        df = df.dropna(subset=["area_m2", "sla"], how="any")
 
-        tabular_path = OUTPUT_DIR / "final_glacier_ml_dataset.parquet"
-        final_df.to_parquet(tabular_path, index=False)
         pd.DataFrame(image_verification_list).to_pickle(
             OUTPUT_DIR / "raster_verification.pkl"
         )
-        print(f"\nSaved {len(final_df)} rows to {tabular_path}")
+        return df
     else:
         print("No features extracted.")
-
-
-if __name__ == "__main__":
-    main()
