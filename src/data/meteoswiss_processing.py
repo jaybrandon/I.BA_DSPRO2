@@ -24,7 +24,7 @@ def _convert_time(ds):
 def extract_precipitation(
     start_year: int, end_year: int, skip_dl: bool = False
 ) -> xr.Dataset:
-    dir = DATA_DIR / "tmp" / "rhiresm"
+    dir = DATA_DIR / "raw" / "rhiresm"
 
     if not skip_dl:
         shutil.rmtree(dir, ignore_errors=True)
@@ -64,7 +64,7 @@ def transform_precipitation(ds: xr.Dataset) -> xr.Dataset:
 def extract_temperature(
     start_year: int, end_year: int, skip_dl: bool = False
 ) -> xr.Dataset:
-    dir = DATA_DIR / "tmp" / "tabsm"
+    dir = DATA_DIR / "raw" / "tabsm"
 
     if not skip_dl:
         shutil.rmtree(dir, ignore_errors=True)
@@ -161,7 +161,10 @@ def _extract_features(row, climate: xr.Dataset):
 def main(start_year: int = 1961, end_year: int = 2025, skip_dl: bool = False):
     ds = get_data(start_year, end_year, skip_dl)
 
-    ds.to_netcdf(DATA_DIR / f"rhiresm_tabsm_quarterly_{start_year}-{end_year}.nc")
+    path = DATA_DIR / 'processed' / f"rhiresm_tabsm_quarterly_{start_year}-{end_year}.nc"
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    ds.to_netcdf(path)
 
 
 if __name__ == "__main__":
