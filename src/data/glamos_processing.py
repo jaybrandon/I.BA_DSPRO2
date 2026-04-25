@@ -4,13 +4,14 @@ from io import BytesIO
 from pathlib import Path
 from zipfile import ZipFile
 
+import geopandas as gpd
 import pandas as pd
 import requests
 import typer
-import geopandas as gpd
+
 
 def extract_data() -> pd.DataFrame:
-    print('Extracting glacier mass balance...')
+    print("Extracting glacier mass balance...")
     gl = pd.read_csv(
         "https://doi.glamos.ch/data/glacier_list/glacier_list.csv",
         skiprows=9,
@@ -74,10 +75,12 @@ def extract_geometry() -> gpd.GeoDataFrame:
     with ZipFile(BytesIO(r.content)) as fd:
         fd.extractall(dir)
 
-    return gpd.read_file(dir / 'SGI_2016_glaciers.shp')
+    return gpd.read_file(dir / "SGI_2016_glaciers.shp")
 
 
-def transform_data(df: pd.DataFrame, geo: gpd.GeoDataFrame, start_year: int, end_year: int) -> gpd.GeoDataFrame:
+def transform_data(
+    df: pd.DataFrame, geo: gpd.GeoDataFrame, start_year: int, end_year: int
+) -> gpd.GeoDataFrame:
     if start_year > end_year and end_year != 0:
         raise ValueError("start_year may not be greater than end_year")
 
@@ -89,7 +92,17 @@ def transform_data(df: pd.DataFrame, geo: gpd.GeoDataFrame, start_year: int, end
     if end_year != 0:
         df = df[df.observation_end <= f"{end_year}-09-30"]
 
-    geo = geo[['sgi-id', 'geometry']].merge(df, right_on='id', left_on='sgi-id', how='inner')
+    df["obs_id"] = (
+        df["id"].astype(str)
+        + "_"
+        + df["observation_start"].astype(str)
+        + "_"
+        + df["observation_end"].astype(str)
+    )
+
+    geo = geo[["sgi-id", "geometry"]].merge(
+        df, right_on="id", left_on="sgi-id", how="inner"
+    )
     geo = geo.drop("sgi-id", axis=1)
 
     return geo
@@ -104,7 +117,11 @@ def get_data(start_year: int = 0, end_year: int = 0) -> gpd.GeoDataFrame:
 
 def main(start_year: int = 0, end_year: int = 0):
     df = get_data(start_year, end_year)
-    data_dir = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) / 'data' / 'processed'
+    data_dir = (
+        Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        / "data"
+        / "processed"
+    )
 
     start = str(df.observation_start.min().date())
     end = str(df.observation_end.max().date())
