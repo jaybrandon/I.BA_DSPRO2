@@ -64,7 +64,7 @@ def extract_data() -> pd.DataFrame:
 def extract_geometry() -> gpd.GeoDataFrame:
     print("Extracting glacier geometry...")
 
-    dir = Path("../data/tmp/glacier_inventory/")
+    dir = Path("../data/raw/glacier_inventory/")
     shutil.rmtree(dir, ignore_errors=True)
     dir.mkdir(parents=True)
 
@@ -77,7 +77,7 @@ def extract_geometry() -> gpd.GeoDataFrame:
     return gpd.read_file(dir / 'SGI_2016_glaciers.shp')
 
 
-def transform_data(df: pd.DataFrame, geo: gpd.GeoDataFrame, start_year: int, end_year: int) -> pd.DataFrame:
+def transform_data(df: pd.DataFrame, geo: gpd.GeoDataFrame, start_year: int, end_year: int) -> gpd.GeoDataFrame:
     if start_year > end_year and end_year != 0:
         raise ValueError("start_year may not be greater than end_year")
 
@@ -89,27 +89,27 @@ def transform_data(df: pd.DataFrame, geo: gpd.GeoDataFrame, start_year: int, end
     if end_year != 0:
         df = df[df.observation_end <= f"{end_year}-09-30"]
 
-    df = df.merge(geo[['sgi-id', 'geometry']], left_on='id', right_on='sgi-id', how='inner') # Change how to 'left' to keep glaciers without geometry
-    df = df.drop("sgi-id", axis=1)
+    geo = geo[['sgi-id', 'geometry']].merge(df, right_on='id', left_on='sgi-id', how='inner')
+    geo = geo.drop("sgi-id", axis=1)
 
-    return df
+    return geo
 
 
-def get_data(start_year: int = 0, end_year: int = 0) -> pd.DataFrame:
+def get_data(start_year: int = 0, end_year: int = 0) -> gpd.GeoDataFrame:
     df = extract_data()
     geo = extract_geometry()
-    df = transform_data(df, geo, start_year, end_year)
-    return df
+    geo = transform_data(df, geo, start_year, end_year)
+    return geo
 
 
 def main(start_year: int = 0, end_year: int = 0):
     df = get_data(start_year, end_year)
-    data_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + "/data/"
+    data_dir = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) / 'data' / 'processed'
 
     start = str(df.observation_start.min().date())
     end = str(df.observation_end.max().date())
 
-    df.to_parquet(data_dir + f"glamos_massbalance_{start}-{end}.parquet")
+    df.to_parquet(data_dir / f"glamos_massbalance_{start}-{end}.parquet")
 
 
 if __name__ == "__main__":

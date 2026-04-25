@@ -4,6 +4,7 @@ import warnings
 from pathlib import Path
 
 import pandas as pd
+import geopandas as gpd
 import requests
 import typer
 import xarray as xr
@@ -110,7 +111,7 @@ def get_data(start_year: int, end_year: int, skip_dl: bool = False) -> xr.Datase
     return prec.merge(temp, compat="override")
 
 
-def get_climate_features(target: pd.DataFrame, climate: xr.Dataset) -> pd.DataFrame:
+def get_climate_features(target: gpd.GeoDataFrame, climate: xr.Dataset) -> gpd.GeoDataFrame:
     warnings.filterwarnings(
         "ignore",
         message="angle from rectified to skew grid parameter lost in conversion to CF",
