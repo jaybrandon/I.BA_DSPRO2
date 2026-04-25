@@ -5,11 +5,10 @@ import ee
 import geopandas as gpd
 import pandas as pd
 from dotenv import load_dotenv
-
 from feature_extraction import extract_glacier_period_features
 from gee_data import get_dem, get_glacier_collection, initialize_gee
 
-BASE_DIR = Path(__file__).resolve().parents[1]
+BASE_DIR = Path(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 OUTPUT_DIR = BASE_DIR / "data" / "processed"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -109,8 +108,6 @@ def get_satellite_features(gdf: gpd.GeoDataFrame):
 
     if all_numerical_rows:
         df = pd.DataFrame(all_numerical_rows)
-
-        df = df.dropna(subset=["area_m2", "sla"], how="any")
 
         pd.DataFrame(image_verification_list).to_pickle(
             OUTPUT_DIR / "raster_verification.pkl"

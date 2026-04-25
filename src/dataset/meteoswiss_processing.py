@@ -10,7 +10,7 @@ import typer
 import xarray as xr
 from tqdm import tqdm
 
-DATA_DIR = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + "/data/")
+DATA_DIR = Path(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) + "/data/")
 
 
 def _convert_time(ds):

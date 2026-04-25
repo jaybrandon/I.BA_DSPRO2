@@ -9,6 +9,11 @@ import pandas as pd
 import requests
 import typer
 
+DATA_DIR = Path(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    + "/data/"
+)
+
 
 def extract_data() -> pd.DataFrame:
     print("Extracting glacier mass balance...")
@@ -65,7 +70,7 @@ def extract_data() -> pd.DataFrame:
 def extract_geometry() -> gpd.GeoDataFrame:
     print("Extracting glacier geometry...")
 
-    dir = Path("../data/raw/glacier_inventory/")
+    dir = DATA_DIR / "raw" / "glacier_inventory"
     shutil.rmtree(dir, ignore_errors=True)
     dir.mkdir(parents=True)
 
@@ -117,16 +122,11 @@ def get_data(start_year: int = 0, end_year: int = 0) -> gpd.GeoDataFrame:
 
 def main(start_year: int = 0, end_year: int = 0):
     df = get_data(start_year, end_year)
-    data_dir = (
-        Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        / "data"
-        / "processed"
-    )
 
     start = str(df.observation_start.min().date())
     end = str(df.observation_end.max().date())
 
-    df.to_parquet(data_dir / f"glamos_massbalance_{start}-{end}.parquet")
+    df.to_parquet(DATA_DIR / "processed" / f"glamos_massbalance_{start}-{end}.parquet")
 
 
 if __name__ == "__main__":
