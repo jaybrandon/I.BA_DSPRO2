@@ -4,6 +4,7 @@ from pathlib import Path
 import hydra
 import numpy as np
 import pandas as pd
+import xgboost as xgb
 from omegaconf import DictConfig, OmegaConf
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestRegressor
@@ -16,10 +17,10 @@ from wandb.sdk import Config
 import wandb
 from src.util import set_seed
 
-DATA_DIR = Path(
+BASE_DIR = Path(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    + "/data/"
 )
+DATA_DIR = BASE_DIR / "data"
 
 TARGET = "mass_balance_annual"
 CATEGORICAL_FEATURES = ["satellite"]
@@ -49,15 +50,13 @@ NUMERICAL_FEATURES = [
 def load_dataset(version: str) -> pd.DataFrame:
     path = DATA_DIR / "processed" / f"glacier_ml_dataset_{version}.parquet"
     df = pd.read_parquet(path)
+    df[CATEGORICAL_FEATURES] = df[CATEGORICAL_FEATURES].astype("category")
     return df
 
 
 def train_rfr(
-    conf: Config, X_train: pd.DataFrame, y_train: pd.Series, groups_train: pd.Series
-):
-    model_conf = conf["model"].copy()
-    del model_conf["name"]
-
+    conf: Config, X_train: pd.DataFrame, y_train: pd.Series, seed: int
+) -> Pipeline:
     preprocessor = ColumnTransformer(
         transformers=[
             ("num", "passthrough", NUMERICAL_FEATURES),
@@ -71,15 +70,55 @@ def train_rfr(
         ]
     )
 
-    rfr = RandomForestRegressor(**model_conf, random_state=conf["seed"], n_jobs=-1)
+    rfr = RandomForestRegressor(**conf, random_state=seed, n_jobs=-1)
 
     pipeline = Pipeline(steps=[("preprocessor", preprocessor), ("regressor", rfr)])
+
+    pipeline.fit(X_train, y_train)
+
+    return pipeline
+
+
+def train_xgb(
+    conf: Config,
+    X_train: pd.DataFrame,
+    y_train: pd.Series,
+    X_val: pd.DataFrame,
+    y_val: pd.Series,
+    seed: int,
+) -> xgb.Booster:
+    conf = conf.copy()
+    early_stopping_rounds = conf["early_stopping_rounds"]
+    num_boost_round = conf["num_boost_round"]
+    del conf["early_stopping_rounds"]
+    del conf["num_boost_round"]
+    conf["seed"] = seed
+
+    dtrain = xgb.DMatrix(X_train, label=y_train, enable_categorical=True)
+    dval = xgb.DMatrix(X_val, label=y_val, enable_categorical=True)
+
+    bst = xgb.train(
+        conf,
+        dtrain,
+        evals=[(dval, "eval")],
+        num_boost_round=num_boost_round,
+        early_stopping_rounds=early_stopping_rounds,
+    )
+
+    return bst
+
+
+def cross_validate(
+    conf: Config, X_train: pd.DataFrame, y_train: pd.Series, groups_train: pd.Series
+):
+    model_conf = conf["model"].copy()
+    del model_conf["name"]
 
     X_train_reset = X_train.reset_index(drop=True)
     y_train_reset = y_train.reset_index(drop=True)
     groups_train_reset = groups_train.reset_index(drop=True)
 
-    gkf = GroupKFold(n_splits=5)
+    gkf = GroupKFold(n_splits=conf["k_folds"])
     fold_rmse = []
     fold_mae = []
     fold_r2 = []
@@ -90,8 +129,15 @@ def train_rfr(
         X_tr, X_val = X_train_reset.iloc[train_idx], X_train_reset.iloc[val_idx]
         y_tr, y_val = y_train_reset.iloc[train_idx], y_train_reset.iloc[val_idx]
 
-        pipeline.fit(X_tr, y_tr)
-        preds = pipeline.predict(X_val)
+        if conf["model"]["name"] == "rfr":
+            model = train_rfr(model_conf, X_tr, y_tr, conf["seed"])
+            preds = model.predict(X_val)
+        else:
+            model = train_xgb(model_conf, X_tr, y_tr, X_val, y_val, conf["seed"])
+            preds = model.predict(
+                xgb.DMatrix(X_val, enable_categorical=True),
+                iteration_range=(0, model.best_iteration + 1),
+            )
 
         rmse = root_mean_squared_error(y_val, preds)
         mae = mean_absolute_error(y_val, preds)
@@ -110,10 +156,6 @@ def train_rfr(
     print(f"Average Validation R2: {avg_val_r2:.4f}")
 
     wandb.log({"val_rmse": avg_val_rmse, "val_mae": avg_val_mae, "val_r2": avg_val_r2})
-
-
-def train_xgb(conf):
-    pass
 
 
 @hydra.main(version_base=None, config_path="conf", config_name="config")
@@ -141,10 +183,21 @@ def main(cfg: DictConfig):
     ) as run:
         conf = run.config
 
-        if conf["model"]["name"] == "rfr":
-            train_rfr(conf, X_train, y_train, groups_train)
-        else:
-            train_xgb(conf)
+        run.log(
+            {
+                "feat_table": wandb.Table(
+                    ["features"],
+                    np.expand_dims(
+                        np.array([*NUMERICAL_FEATURES, *CATEGORICAL_FEATURES]), 1
+                    ),
+                )
+            }
+        )
+
+        if conf["mode"] == "tune":
+            cross_validate(conf, X_train, y_train, groups_train)
+
+        run.save(BASE_DIR / "uv.lock")
 
 
 if __name__ == "__main__":
