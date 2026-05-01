@@ -1,5 +1,6 @@
 mode: tune
 seed: 42
+dataset: v1.0
 
 wandb:
   entity: DSPRO2_Group7
