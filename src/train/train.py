@@ -5,8 +5,9 @@ import hydra
 import numpy as np
 import pandas as pd
 import xgboost as xgb
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig, OmegaConf, open_dict
 from sklearn.compose import ColumnTransformer
+from sklearn.dummy import DummyRegressor
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, r2_score, root_mean_squared_error
 from sklearn.model_selection import GroupKFold, GroupShuffleSplit
@@ -52,6 +53,31 @@ def load_dataset(version: str) -> pd.DataFrame:
     df = pd.read_parquet(path)
     df[CATEGORICAL_FEATURES] = df[CATEGORICAL_FEATURES].astype("category")
     return df
+
+
+def calc_metrics(target, preds, baseline_mean, baseline_median, prefix):
+    mean = target.mean()
+    std = target.std()
+
+    rmse_baseline = root_mean_squared_error(target, baseline_mean)
+    rmse = root_mean_squared_error(target, preds)
+    cvrmse = rmse / mean if mean != 0 else 0
+
+    mae_baseline = mean_absolute_error(target, baseline_median)
+    mae = mean_absolute_error(target, preds)
+
+    r2 = r2_score(target, preds)
+
+    return {
+        f"{prefix}_mean": mean,
+        f"{prefix}_std": std,
+        f"{prefix}_rmse_baseline": rmse_baseline,
+        f"{prefix}_rmse": rmse,
+        f"{prefix}_cvrmse": cvrmse,
+        f"{prefix}_mae_baseline": mae_baseline,
+        f"{prefix}_mae": mae,
+        f"{prefix}_r2": r2,
+    }
 
 
 def train_rfr(
@@ -109,8 +135,9 @@ def train_xgb(
 
 
 def cross_validate(
-    conf: Config, X_train: pd.DataFrame, y_train: pd.Series, groups_train: pd.Series
+    run: wandb.Run, X_train: pd.DataFrame, y_train: pd.Series, groups_train: pd.Series
 ):
+    conf = run.config
     model_conf = conf["model"].copy()
     del model_conf["name"]
 
@@ -119,9 +146,7 @@ def cross_validate(
     groups_train_reset = groups_train.reset_index(drop=True)
 
     gkf = GroupKFold(n_splits=conf["k_folds"])
-    fold_rmse = []
-    fold_mae = []
-    fold_r2 = []
+    results = []
 
     for fold, (train_idx, val_idx) in enumerate(
         gkf.split(X_train_reset, y_train_reset, groups_train_reset)
@@ -131,31 +156,46 @@ def cross_validate(
 
         if conf["model"]["name"] == "rfr":
             model = train_rfr(model_conf, X_tr, y_tr, conf["seed"])
-            preds = model.predict(X_val)
+            val_preds = model.predict(X_val)
+            train_preds = model.predict(X_tr)
         else:
             model = train_xgb(model_conf, X_tr, y_tr, X_val, y_val, conf["seed"])
-            preds = model.predict(
+            val_preds = model.predict(
                 xgb.DMatrix(X_val, enable_categorical=True),
                 iteration_range=(0, model.best_iteration + 1),
             )
+            train_preds = model.predict(
+                xgb.DMatrix(X_tr, enable_categorical=True),
+                iteration_range=(0, model.best_iteration + 1),
+            )
 
-        rmse = root_mean_squared_error(y_val, preds)
-        mae = mean_absolute_error(y_val, preds)
-        r2 = r2_score(y_val, preds)
+        dummy_mean = DummyRegressor().fit(X_tr, y_tr)
+        dummy_median = DummyRegressor(strategy="median").fit(X_tr, y_tr)
 
-        fold_rmse.append(rmse)
-        fold_mae.append(mae)
-        fold_r2.append(r2)
+        val_metrics = calc_metrics(
+            y_val,
+            val_preds,
+            dummy_mean.predict(X_val),
+            dummy_median.predict(X_val),
+            "val",
+        )
+        train_metrics = calc_metrics(
+            y_tr,
+            train_preds,
+            dummy_mean.predict(X_tr),
+            dummy_median.predict(X_tr),
+            "train",
+        )
 
-    avg_val_rmse = np.mean(fold_rmse)
-    avg_val_mae = np.mean(fold_mae)
-    avg_val_r2 = np.mean(fold_r2)
+        metrics = {**val_metrics, **train_metrics}
 
-    print(f"Average Validation RMSE: {avg_val_rmse:.4f}")
-    print(f"Average Validation MAE: {avg_val_mae:.4f}")
-    print(f"Average Validation R2: {avg_val_r2:.4f}")
+        results.append(metrics)
 
-    wandb.log({"val_rmse": avg_val_rmse, "val_mae": avg_val_mae, "val_r2": avg_val_r2})
+        run.log({f"fold_{fold}/{key}": value for key, value in metrics.items()})
+
+    df_results = pd.DataFrame(results)
+
+    run.log(df_results.mean().to_dict())
 
 
 @hydra.main(version_base=None, config_path="conf", config_name="config")
@@ -163,6 +203,10 @@ def main(cfg: DictConfig):
     set_seed(cfg.seed)
 
     df = load_dataset(version=cfg.dataset)
+
+    with open_dict(cfg):
+        cfg.dataset_start = str(df.year.min())
+        cfg.dataset_end = str(df.year.max())
 
     X = df[CATEGORICAL_FEATURES + NUMERICAL_FEATURES]
     y = df[TARGET]
@@ -195,7 +239,7 @@ def main(cfg: DictConfig):
         )
 
         if conf["mode"] == "tune":
-            cross_validate(conf, X_train, y_train, groups_train)
+            cross_validate(run, X_train, y_train, groups_train)
 
         run.save(BASE_DIR / "uv.lock")
 
