@@ -205,8 +205,8 @@ def main(cfg: DictConfig):
     df = load_dataset(version=cfg.dataset)
 
     with open_dict(cfg):
-        cfg.dataset_start = str(df.year.min())
-        cfg.dataset_end = str(df.year.max())
+        cfg.dataset_start = str(df.observation_start.min().year)
+        cfg.dataset_end = str(df.observation_end.max().year)
 
     X = df[CATEGORICAL_FEATURES + NUMERICAL_FEATURES]
     y = df[TARGET]
