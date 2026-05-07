@@ -80,6 +80,54 @@ def calc_metrics(target, preds, baseline_mean, baseline_median, prefix):
     }
 
 
+def log_feature_importance(run: wandb.Run, bst: xgb.Booster):
+    importances = []
+    weight = bst.get_score(importance_type="weight")
+    weight["importance_type"] = "weight"
+
+    gain = bst.get_score(importance_type="gain")
+    gain["importance_type"] = "gain"
+
+    cover = bst.get_score(importance_type="cover")
+    cover["importance_type"] = "cover"
+
+    importances.append(weight)
+    importances.append(gain)
+    importances.append(cover)
+
+    df = pd.DataFrame(importances)
+    df = df.set_index("importance_type").T.reset_index()
+    df = df.rename(columns={"index": "feature"})
+    df.columns.name = None
+    table = wandb.Table(dataframe=df)
+
+    run.log({"feature_importance": table})
+
+    run.log(
+        {
+            "feature_importance_gain": wandb.plot.bar(
+                table, "feature", "gain", title="XGBoost Feature Importance (Gain)"
+            )
+        }
+    )
+
+    run.log(
+        {
+            "feature_importance_weight": wandb.plot.bar(
+                table, "feature", "weight", title="XGBoost Feature Importance (Weight)"
+            )
+        }
+    )
+
+    run.log(
+        {
+            "feature_importance_cover": wandb.plot.bar(
+                table, "feature", "cover", title="XGBoost Feature Importance (Cover)"
+            )
+        }
+    )
+
+
 def train_rfr(
     conf: Config, X_train: pd.DataFrame, y_train: pd.Series, seed: int
 ) -> Pipeline:
@@ -160,6 +208,7 @@ def cross_validate(
             train_preds = model.predict(X_tr)
         else:
             model = train_xgb(model_conf, X_tr, y_tr, X_val, y_val, conf["seed"])
+            log_feature_importance(run, model)
             val_preds = model.predict(
                 xgb.DMatrix(X_val, enable_categorical=True),
                 iteration_range=(0, model.best_iteration + 1),
