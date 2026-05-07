@@ -32,3 +32,9 @@ dependencies = [
     "xarray>=2026.2.0",
     "xgboost>=3.2.0",
 ]
+
+[dependency-groups]
+train = [
+    "matplotlib>=3.10.9",
+    "seaborn>=0.13.2",
+]

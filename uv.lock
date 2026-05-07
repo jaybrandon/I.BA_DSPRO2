@@ -800,6 +800,12 @@ dependencies = [
     { name = "xgboost" },
 ]
 
+[package.dev-dependencies]
+train = [
+    { name = "matplotlib" },
+    { name = "seaborn" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "cftime", specifier = ">=1.6.5" },
@@ -828,6 +834,12 @@ requires-dist = [
     { name = "wandb", specifier = ">=0.26.0" },
     { name = "xarray", specifier = ">=2026.2.0" },
     { name = "xgboost", specifier = ">=3.2.0" },
+]
+
+[package.metadata.requires-dev]
+train = [
+    { name = "matplotlib", specifier = ">=3.10.9" },
+    { name = "seaborn", specifier = ">=0.13.2" },
 ]
 
 [[package]]

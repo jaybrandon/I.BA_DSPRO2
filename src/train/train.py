@@ -2,8 +2,10 @@ import os
 from pathlib import Path
 
 import hydra
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import seaborn as sns
 import xgboost as xgb
 from omegaconf import DictConfig, OmegaConf, open_dict
 from sklearn.compose import ColumnTransformer
@@ -79,53 +81,14 @@ def calc_metrics(target, preds, baseline_mean, baseline_median, prefix):
         f"{prefix}_r2": r2,
     }
 
+def log_xgb_feature_importance(run: wandb.Run, bst: xgb.Booster, type: str):
+    f, ax = plt.subplots(figsize=(10, 8))
 
-def log_feature_importance(run: wandb.Run, bst: xgb.Booster):
-    importances = []
-    weight = bst.get_score(importance_type="weight")
-    weight["importance_type"] = "weight"
+    xgb.plot_importance(booster=bst, ax=ax, importance_type=type, title=f'XGBoost Feature Importance ({type})')
+    plt.tight_layout()
 
-    gain = bst.get_score(importance_type="gain")
-    gain["importance_type"] = "gain"
-
-    cover = bst.get_score(importance_type="cover")
-    cover["importance_type"] = "cover"
-
-    importances.append(weight)
-    importances.append(gain)
-    importances.append(cover)
-
-    df = pd.DataFrame(importances)
-    df = df.set_index("importance_type").T.reset_index()
-    df = df.rename(columns={"index": "feature"})
-    df.columns.name = None
-    table = wandb.Table(dataframe=df)
-
-    run.log({"feature_importance": table})
-
-    run.log(
-        {
-            "feature_importance_gain": wandb.plot.bar(
-                table, "feature", "gain", title="XGBoost Feature Importance (Gain)"
-            )
-        }
-    )
-
-    run.log(
-        {
-            "feature_importance_weight": wandb.plot.bar(
-                table, "feature", "weight", title="XGBoost Feature Importance (Weight)"
-            )
-        }
-    )
-
-    run.log(
-        {
-            "feature_importance_cover": wandb.plot.bar(
-                table, "feature", "cover", title="XGBoost Feature Importance (Cover)"
-            )
-        }
-    )
+    run.log({f"feature_importance_{type}": wandb.Image(f)})
+    plt.close(f)
 
 
 def train_rfr(
@@ -208,7 +171,11 @@ def cross_validate(
             train_preds = model.predict(X_tr)
         else:
             model = train_xgb(model_conf, X_tr, y_tr, X_val, y_val, conf["seed"])
-            log_feature_importance(run, model)
+
+            log_xgb_feature_importance(run, model, 'weight')
+            log_xgb_feature_importance(run, model, 'gain')
+            log_xgb_feature_importance(run, model, 'cover')
+
             val_preds = model.predict(
                 xgb.DMatrix(X_val, enable_categorical=True),
                 iteration_range=(0, model.best_iteration + 1),
