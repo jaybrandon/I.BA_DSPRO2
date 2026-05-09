@@ -5,7 +5,7 @@ metric:
 parameters:
   model.objective:
     value: reg:squarederror
-  model.eta:
+  model.learning_rate:
     distribution: log_uniform_values
     min: 0.005
     max: 0.3
@@ -24,10 +24,10 @@ parameters:
   model.colsample_bytree: 
     min: 0.5
     max: 1.0
-  model.lambda:
+  model.reg_lambda:
     min: 0.0
     max: 2.0
-  model.alpha:
+  model.reg_alpha:
     min: 0.0
     max: 2.0
 command:

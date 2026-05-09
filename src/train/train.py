@@ -1,6 +1,10 @@
 import os
 from pathlib import Path
 
+import matplotlib
+
+matplotlib.use("Agg")
+
 import hydra
 import matplotlib.pyplot as plt
 import numpy as np
@@ -17,6 +21,7 @@ from sklearn.model_selection import GroupKFold, GroupShuffleSplit
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
 from wandb.sdk import Config
+from xgboost import XGBRegressor
 
 import wandb
 from src.util import set_seed
@@ -83,15 +88,17 @@ def calc_metrics(target, preds, baseline_mean, baseline_median, prefix):
     }
 
 
-def log_rfr_feature_importance(
-    run: wandb.Run, rfr: RandomForestRegressor | Pipeline, X, y
+def log_perm_feature_importance(
+    run: wandb.Run, model: RandomForestRegressor | Pipeline | XGBRegressor, X, y
 ):
     f, ax = plt.subplots(figsize=(10, 8))
 
     result = permutation_importance(
-        rfr, X, y, n_repeats=30, random_state=run.config["seed"], n_jobs=-1
+        model, X, y, n_repeats=10, random_state=run.config["seed"], n_jobs=-1
     )
-    forest_importances = pd.DataFrame([rfr.feature_names_in_, result.importances_mean]).T
+    forest_importances = pd.DataFrame(
+        [model.feature_names_in_, result.importances_mean]
+    ).T
     forest_importances.columns = ["feature", "importance"]
 
     sns.barplot(
@@ -101,10 +108,10 @@ def log_rfr_feature_importance(
         orient="h",
         ax=ax,
     )
-    ax.set_title("RandomForest Permutation Importance")
+    ax.set_title("Permutation Importance")
     plt.tight_layout()
 
-    run.log({"feature_importance": wandb.Image(f)})
+    run.log({"permutation_importance": wandb.Image(f)})
     plt.close(f)
 
 
@@ -155,26 +162,22 @@ def train_xgb(
     X_val: pd.DataFrame,
     y_val: pd.Series,
     seed: int,
-) -> xgb.Booster:
+) -> XGBRegressor:
     conf = conf.copy()
-    early_stopping_rounds = conf["early_stopping_rounds"]
-    num_boost_round = conf["num_boost_round"]
-    del conf["early_stopping_rounds"]
-    del conf["num_boost_round"]
-    conf["seed"] = seed
+    early_stopping_rounds = conf.pop("early_stopping_rounds", None)
+    n_estimators = conf.pop("num_boost_round", 100)
 
-    dtrain = xgb.DMatrix(X_train, label=y_train, enable_categorical=True)
-    dval = xgb.DMatrix(X_val, label=y_val, enable_categorical=True)
-
-    bst = xgb.train(
-        conf,
-        dtrain,
-        evals=[(dval, "eval")],
-        num_boost_round=num_boost_round,
+    model = XGBRegressor(
+        n_estimators=n_estimators,
         early_stopping_rounds=early_stopping_rounds,
+        enable_categorical=True,
+        random_state=seed,
+        **conf,
     )
 
-    return bst
+    model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=True)
+
+    return model
 
 
 def cross_validate(
@@ -199,26 +202,18 @@ def cross_validate(
 
         if conf["model"]["name"] == "rfr":
             model = train_rfr(model_conf, X_tr, y_tr, conf["seed"])
-
-            log_rfr_feature_importance(run, model, X_val, y_val)
-
-            val_preds = model.predict(X_val)
-            train_preds = model.predict(X_tr)
         else:
             model = train_xgb(model_conf, X_tr, y_tr, X_val, y_val, conf["seed"])
 
-            log_xgb_feature_importance(run, model, "weight")
-            log_xgb_feature_importance(run, model, "gain")
-            log_xgb_feature_importance(run, model, "cover")
+            bst = model.get_booster()
+            log_xgb_feature_importance(run, bst, "weight")
+            log_xgb_feature_importance(run, bst, "gain")
+            log_xgb_feature_importance(run, bst, "cover")
 
-            val_preds = model.predict(
-                xgb.DMatrix(X_val, enable_categorical=True),
-                iteration_range=(0, model.best_iteration + 1),
-            )
-            train_preds = model.predict(
-                xgb.DMatrix(X_tr, enable_categorical=True),
-                iteration_range=(0, model.best_iteration + 1),
-            )
+        log_perm_feature_importance(run, model, X_val, y_val)
+
+        val_preds = model.predict(X_val)
+        train_preds = model.predict(X_tr)
 
         dummy_mean = DummyRegressor().fit(X_tr, y_tr)
         dummy_median = DummyRegressor(strategy="median").fit(X_tr, y_tr)
