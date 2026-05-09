@@ -11,6 +11,7 @@ from omegaconf import DictConfig, OmegaConf, open_dict
 from sklearn.compose import ColumnTransformer
 from sklearn.dummy import DummyRegressor
 from sklearn.ensemble import RandomForestRegressor
+from sklearn.inspection import permutation_importance
 from sklearn.metrics import mean_absolute_error, r2_score, root_mean_squared_error
 from sklearn.model_selection import GroupKFold, GroupShuffleSplit
 from sklearn.pipeline import Pipeline
@@ -81,10 +82,41 @@ def calc_metrics(target, preds, baseline_mean, baseline_median, prefix):
         f"{prefix}_r2": r2,
     }
 
+
+def log_rfr_feature_importance(
+    run: wandb.Run, rfr: RandomForestRegressor | Pipeline, X, y
+):
+    f, ax = plt.subplots(figsize=(10, 8))
+
+    result = permutation_importance(
+        rfr, X, y, n_repeats=30, random_state=run.config["seed"], n_jobs=-1
+    )
+    forest_importances = pd.DataFrame([rfr.feature_names_in_, result.importances_mean]).T
+    forest_importances.columns = ["feature", "importance"]
+
+    sns.barplot(
+        forest_importances.sort_values("importance", ascending=False),
+        x="importance",
+        y="feature",
+        orient="h",
+        ax=ax,
+    )
+    ax.set_title("RandomForest Permutation Importance")
+    plt.tight_layout()
+
+    run.log({"feature_importance": wandb.Image(f)})
+    plt.close(f)
+
+
 def log_xgb_feature_importance(run: wandb.Run, bst: xgb.Booster, type: str):
     f, ax = plt.subplots(figsize=(10, 8))
 
-    xgb.plot_importance(booster=bst, ax=ax, importance_type=type, title=f'XGBoost Feature Importance ({type})')
+    xgb.plot_importance(
+        booster=bst,
+        ax=ax,
+        importance_type=type,
+        title=f"XGBoost Feature Importance ({type})",
+    )
     plt.tight_layout()
 
     run.log({f"feature_importance_{type}": wandb.Image(f)})
@@ -167,14 +199,17 @@ def cross_validate(
 
         if conf["model"]["name"] == "rfr":
             model = train_rfr(model_conf, X_tr, y_tr, conf["seed"])
+
+            log_rfr_feature_importance(run, model, X_val, y_val)
+
             val_preds = model.predict(X_val)
             train_preds = model.predict(X_tr)
         else:
             model = train_xgb(model_conf, X_tr, y_tr, X_val, y_val, conf["seed"])
 
-            log_xgb_feature_importance(run, model, 'weight')
-            log_xgb_feature_importance(run, model, 'gain')
-            log_xgb_feature_importance(run, model, 'cover')
+            log_xgb_feature_importance(run, model, "weight")
+            log_xgb_feature_importance(run, model, "gain")
+            log_xgb_feature_importance(run, model, "cover")
 
             val_preds = model.predict(
                 xgb.DMatrix(X_val, enable_categorical=True),
