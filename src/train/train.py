@@ -50,9 +50,7 @@ NUMERICAL_FEATURES = [
     "q3h_temp",
     "q4h_temp",
     "q1h_prec",
-    "q2h_prec",
     "q3h_prec",
-    "q4h_prec",
 ]
 
 
