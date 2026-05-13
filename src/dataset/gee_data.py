@@ -111,6 +111,6 @@ def get_glacier_collection(sensor_type, polygon, start_date, end_date, cloud_thr
 
 def get_dem(roi: ee.Geometry) -> ee.Image:
     dem_collection = ee.ImageCollection("COPERNICUS/DEM/GLO30")
-    dem_image = dem_collection.select('DEM').mosaic()
-    terrain = ee.Terrain.products(dem_image)
+    terrain_collection = dem_collection.select('DEM').map(lambda img: ee.Terrain.products(img))
+    terrain = terrain_collection.mosaic()
     return terrain.clip(roi)
