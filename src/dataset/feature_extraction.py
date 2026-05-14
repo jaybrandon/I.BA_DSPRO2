@@ -3,66 +3,70 @@ import math
 import ee
 
 SCR_SLA_THRESHOLD = 0.6
-MIN_CONSECUTIVE_SLA = 3
-
 
 def extract_sla(
     snow_mask: ee.Image, ice_mask: ee.Image, dem: ee.Image, roi: ee.Geometry
-):
+) -> ee.Number:
     dem_bins = dem.select("DEM").divide(10).floor().multiply(10).rename("elevation")
-
     combined = ee.Image.cat([snow_mask, ice_mask, dem_bins])
 
-    bin_stats = (
-        combined.reduceRegion(
-            reducer=ee.Reducer.sum()
-            .repeat(2)
-            .group(groupField=2, groupName="elevation"),
-            geometry=roi,
-            scale=30,
-            maxPixels=1e9,
-        )
-        .get("groups")
-        .getInfo()
+    stats = combined.reduceRegion(
+        reducer=ee.Reducer.sum().repeat(2).group(groupField=2, groupName="elevation"),
+        geometry=roi,
+        scale=30,
+        maxPixels=1e9,
     )
 
-    if bin_stats is None:
-        return None
+    groups = ee.List(stats.get("groups", ee.List([])))
 
-    bin_stats = sorted(bin_stats, key=lambda x: x["elevation"])
+    def process_bin(b):
+        b_dict = ee.Dictionary(b)
+        elev = ee.Number(b_dict.get("elevation"))
+        counts = ee.List(b_dict.get("sum"))
+        snow = ee.Number(counts.get(0))
+        ice = ee.Number(counts.get(1))
 
-    consecutive_sla_count = 0
-    fallback_sla = None
-    run_elev = None
-    sla = None
+        total = snow.add(ice)
 
-    for bin in bin_stats:
-        elev = bin["elevation"]
-        n_snow = bin["sum"][0]
-        n_ice = bin["sum"][1]
-        total = n_snow + n_ice
+        scr = ee.Algorithms.If(total.gt(0), snow.divide(total), -1)
 
-        if total == 0:
-            continue
+        return ee.Feature(None, {"elevation": elev, "scr": scr})
 
-        scr = n_snow / total
+    valid_bins = (
+        ee.FeatureCollection(groups.map(process_bin))
+        .filter(ee.Filter.gte("scr", 0))
+        .sort("elevation")
+    )
 
-        if scr >= SCR_SLA_THRESHOLD:
-            if fallback_sla is None:
-                fallback_sla = elev
+    elevs = valid_bins.aggregate_array("elevation")
+    scrs = valid_bins.aggregate_array("scr")
 
-            if consecutive_sla_count == 0:
-                run_elev = elev
+    mask_list = scrs.map(lambda val: ee.Number(val).gte(SCR_SLA_THRESHOLD))
 
-            consecutive_sla_count += 1
+    fallback_idx = mask_list.indexOf(1)
+    fallback = ee.Algorithms.If(fallback_idx.neq(-1), elevs.get(fallback_idx), -9999)
 
-            if consecutive_sla_count >= MIN_CONSECUTIVE_SLA:
-                sla = run_elev
-                break
-        else:
-            consecutive_sla_count = 0
+    def find_streak():
+        mask_arr = ee.Array(mask_list)
+        length = mask_arr.length().get([0])
 
-    return sla if sla is not None else fallback_sla
+        a0 = mask_arr.slice(0, 0, length.subtract(2))
+        a1 = mask_arr.slice(0, 1, length.subtract(1))
+        a2 = mask_arr.slice(0, 2, length)
+
+        streak_sums = a0.add(a1).add(a2).toList()
+
+        sla_idx = streak_sums.indexOf(3)
+
+        return ee.Algorithms.If(
+            sla_idx.neq(-1),
+            elevs.get(sla_idx),
+            fallback,
+        )
+
+    sla = ee.Algorithms.If(mask_list.size().gte(3), find_streak(), fallback)
+
+    return ee.Number(sla)
 
 
 def get_otsu_threshold(hist):
@@ -113,7 +117,7 @@ def calc_snow_ice_masks(image: ee.Image):
     return snow_mask, ice_mask
 
 
-def add_glacier_masks(image: ee.Image):
+def add_glacier_masks(image: ee.Image) -> ee.Image:
     ndsi = image.normalizedDifference(["B3", "B11"]).rename("NDSI")
     nir = image.select("B8")
     ndsi_mask = ndsi.gt(0.4).And(nir.gt(0.11)).rename("ndsi_mask")
@@ -174,6 +178,10 @@ def extract_per_image_features(
     aspect_deg = aspect_rad.multiply(180.0 / math.pi)
     aspect = aspect_deg.mod(360)
 
+    dem_minmax = dem.reduceRegion(
+        reducer=ee.Reducer.minMax(), geometry=polygon, scale=30, maxPixels=1e9
+    )
+
     return ee.Feature(
         None,
         {
@@ -197,6 +205,8 @@ def extract_per_image_features(
             "elev_mean": dem_stats.get("DEM"),
             "slope_mean": dem_stats.get("slope"),
             "aspect_mean": aspect,
+            "elev_min": dem_minmax.get("DEM_min"),
+            "elev_max": dem_minmax.get("DEM_max"),
         },
     )
 
@@ -204,16 +214,18 @@ def extract_per_image_features(
 def extract_glacier_period_features(
     collection: ee.ImageCollection, dem: ee.Image, polygon: ee.Geometry, obs_id: str
 ):
-    count = collection.size()
+    feature_col = collection.map(
+        lambda img: extract_per_image_features(img, dem, polygon, obs_id)
+    )
 
-    img_list = collection.toList(count)
-    features = []
+    features = feature_col.getInfo()["features"]
 
-    for i in range(count.getInfo()):  # ty:ignore[invalid-argument-type]
-        img = ee.Image(img_list.get(i))
-
-        feature = extract_per_image_features(img, dem, polygon, obs_id)
-        features.append(feature)
+    clean_features = []
+    for f in features:
+        props = f["properties"]
+        if props.get("SLA") == -9999:
+            props["SLA"] = None
+        clean_features.append(props)
 
     masks = (
         collection.map(add_glacier_masks)
@@ -221,9 +233,10 @@ def extract_glacier_period_features(
         .median()
         .gt(0.5)
         .clip(polygon)
-    ).toByte()
+        .set("system:index", ee.String(str(obs_id)))
+    )
 
     return {
-        "features": ee.FeatureCollection(features).getInfo()["features"],
+        "features": clean_features,
         "masks": masks,
     }

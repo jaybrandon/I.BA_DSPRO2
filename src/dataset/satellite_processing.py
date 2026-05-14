@@ -1,8 +1,10 @@
 import concurrent.futures
 import os
+import random
 from pathlib import Path
 
 import ee
+import geemap
 import geopandas as gpd
 import pandas as pd
 from dotenv import load_dotenv
@@ -16,7 +18,7 @@ OUTPUT_DIR = BASE_DIR / "data" / "processed"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_ROWS = None
-MAX_THREADS = 15  # Dont go to high to avoid rate limiting from gee
+MAX_THREADS = 3  # Dont go too high to avoid rate limiting from gee
 
 
 def assign_satellite_label(date):
@@ -46,11 +48,10 @@ def process_observation(row_data):
 
     local_numerical_rows = []
     local_verification_list = []
-    local_verification_list_info = []
 
     if sat_type is None:
         print(f"[{idx + 1}] Skipping {obs_id}: Pre-satellite era.")
-        return local_numerical_rows, local_verification_list, local_verification_list_info
+        return (local_numerical_rows, local_verification_list)
 
     try:
         roi = ee.Geometry(row.geometry.__geo_interface__)
@@ -66,43 +67,31 @@ def process_observation(row_data):
         count = collection.size().getInfo()
         if count == 0:
             print(f"[{idx + 1}] Skipping {obs_id}: No summer images found.")
-            return local_numerical_rows, local_verification_list, local_verification_list_info
-
-        print(f"[{idx + 1}] Processed {obs_id}: Found {count} images.")
+            return (local_numerical_rows, local_verification_list)
 
         dem = get_dem(roi)
 
         results = extract_glacier_period_features(collection, dem, roi, obs_id)
-        feature_list = results.get("features", [])
-        mask_img = results.get("final_mask_image")
 
-        for feat in feature_list:
-            props = feat.get("properties", feat) if isinstance(feat, dict) else feat
+        features = results.get("features")
+        masks = results.get("masks")
 
-            if props:
-                combined_row = {**row.drop("geometry").to_dict(), **props}
+        for feat in features:
+            if feat:
+                combined_row = {**row.to_dict(), **feat}
                 local_numerical_rows.append(combined_row)
 
-        if mask_img:
-            local_verification_list.append({"obs_id": obs_id, "mask_image": mask_img})
-            local_verification_list_info.append(
-                {
-                    "obs_id": obs_id,
-                    "satellite": sat_type,
-                    "observation_start": row["observation_start"].strftime("%Y-%m-%d"),
-                    "observation_end": row["observation_end"].strftime("%Y-%m-%d"),
-                    "geometry": row.geometry,
-                }
-            )
+        if masks:
+            local_verification_list.append(masks)
         else:
             print(f"[{idx + 1}] ---no mask saved---")
 
-        #print(f"[{idx + 1}] Processed {obs_id}: Found {len(feature_list)} images.")
+        print(f"[{idx + 1}] Processed {obs_id}: Found {len(features)} images.")
 
     except Exception as e:
         print(f"Error on {obs_id}: {e}")
 
-    return local_numerical_rows, local_verification_list, local_verification_list_info
+    return local_numerical_rows, local_verification_list
 
 
 def get_satellite_features(gdf: gpd.GeoDataFrame):
@@ -122,7 +111,6 @@ def get_satellite_features(gdf: gpd.GeoDataFrame):
 
     all_numerical_rows = []
     image_verification_list = []
-    image_verification_list_info = []
 
     print(f"Starting extraction for {len(gdf)} observation periods...")
 
@@ -133,17 +121,26 @@ def get_satellite_features(gdf: gpd.GeoDataFrame):
         }
 
         for future in concurrent.futures.as_completed(futures):
-            num_rows, verif_list, verif_list_info = future.result()
+            num_rows, verif_list = future.result()
 
             all_numerical_rows.extend(num_rows)
             image_verification_list.extend(verif_list)
-            image_verification_list_info.extend(verif_list_info)
 
     if all_numerical_rows:
         df = pd.DataFrame(all_numerical_rows)
 
-        pd.DataFrame(image_verification_list).to_pickle(OUTPUT_DIR / "raster_verification.pkl")
-        pd.DataFrame(image_verification_list_info).to_pickle(OUTPUT_DIR / "verification.pkl")
+        out = OUTPUT_DIR / "verification"
+        out.mkdir(parents=True, exist_ok=True)
+
+        if len(image_verification_list) >= 5:
+            samples = random.sample(image_verification_list, 5)
+
+            geemap.ee_export_image_collection(
+                ee_object=ee.ImageCollection.fromImages(samples),
+                out_dir=str(out),
+                scale=30,
+                format="ZIPPED_GEO_TIFF",
+            )
         return df
     else:
         print("No features extracted.")

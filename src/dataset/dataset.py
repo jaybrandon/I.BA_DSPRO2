@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 DATA_DIR = BASE_DIR / "data"
 
-VERSION = "v1.0"
+VERSION = "v2.0"
 
 OUTPUT_FILE = DATA_DIR / "processed" / f"glacier_ml_dataset_{VERSION}.parquet"
 
@@ -38,23 +38,18 @@ def build(start_year: int = 0, end_year: int = 0, skip_dl: bool = False):
     df_cleaned.to_parquet(OUTPUT_FILE, index=False)
 
     print(f"Dataset saved to: {OUTPUT_FILE}")
-    print(f"Final Sample Size: {len(df_cleaned)} observations.")
+    print(f"Final Sample Size: {len(df)} observations.")
 
 
 def data_cleaning(df):
 
-    df = df.dropna(subset=["NDSI", "B2", "sla"]).copy()
-    df = df[df["area_m2"] > 0]
+    # df = df.dropna(subset=["NDSI", "B2", "sla"]).copy()
+    # df = df[df["area_m2"] > 0]
 
     df["year"] = df["date"].str[:4].astype(int)
     df["doy"] = df["date"].str[-3:].astype(int)
 
-    if "geometry" in df.columns:
-        df["total_area_static"] = df["geometry"].area
-        df["AAR"] = (df["area_m2"] / df["total_area_static"]).clip(0, 1)
-
-    if "sla" in df.columns and "elev_mean" in df.columns:
-        df["sla_norm"] = (df["sla"] - df["elev_mean"]) / df["elev_mean"]
+    df["sla_norm"] = (df["SLA"] - df["elev_mean"]) / (df["elev_max"] - df["elev_min"])
 
     columns = [
         "id",
@@ -65,23 +60,27 @@ def data_cleaning(df):
         "observation_start",
         "observation_end",
         "mass_balance_annual",
-        "area_m2",
-        "AAR",
-        "sla",
         "sla_norm",
+        "B2_mean",
+        "B3_mean",
+        "B4_mean",
+        "B8_mean",
+        "B11_mean",
+        "B12_mean",
+        "B2_std",
+        "B3_std",
+        "B4_std",
+        "B8_std",
+        "B11_std",
+        "B12_std",
+        "SCR",
+        "SCA",
+        "SLA",
         "elev_mean",
         "slope_mean",
         "aspect_mean",
-        "NDSI",
-        "snow_fraction",
         "coordx",
         "coordy",
-        "B2",
-        "B3",
-        "B4",
-        "B8",
-        "B11",
-        "B12",
         "q1h_temp",
         "q2h_temp",
         "q3h_temp",
