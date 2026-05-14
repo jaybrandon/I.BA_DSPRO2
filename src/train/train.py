@@ -64,6 +64,8 @@ def load_dataset(version: str) -> pd.DataFrame:
     path = DATA_DIR / "processed" / f"glacier_ml_dataset_{version}.parquet"
     df = pd.read_parquet(path)
     df[CATEGORICAL_FEATURES] = df[CATEGORICAL_FEATURES].astype("category")
+    df = df.dropna()
+    print(f'Dataset size {len(df)}')
     return df
 
 
