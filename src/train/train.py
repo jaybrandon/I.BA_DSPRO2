@@ -51,7 +51,6 @@ NUMERICAL_FEATURES = [
     "SCA",
     "elev_mean",
     "slope_mean",
-    "aspect_mean",
     "q1h_temp",
     "q2h_temp",
     "q3h_temp",
