@@ -70,11 +70,8 @@ def preprocess_image(image, sensor_type):
     # apply masking and indices
     processed = mask_clouds(processed, sensor_type)
 
-    # NDSI (Green, SWIR1) -> B3, B11 across all
-    ndsi = processed.normalizedDifference(["B3", "B11"]).rename("NDSI")
-    ndvi = processed.normalizedDifference(["B8", "B4"]).rename("NDVI")
+    return processed.copyProperties(image, ["system:time_start"])
 
-    return processed.addBands([ndsi, ndvi]).copyProperties(image, ["system:time_start"])
 
 
 def mosaic_by_date(collection, polygon):
@@ -99,7 +96,7 @@ def mosaic_by_date(collection, polygon):
     return ee.ImageCollection(unique_dates.map(mosaic_for_date))
 
 
-def get_glacier_collection(
+def get_glacier_composite(
     sensor_type, polygon, start_date, end_date, cloud_threshold=40
 ):
     config = SAT_CONFIG[sensor_type]
@@ -113,22 +110,33 @@ def get_glacier_collection(
         .map(lambda img: preprocess_image(img, sensor_type))
     )
 
-    mosaicked_collection = mosaic_by_date(collection, polygon)
+    if collection.size().getInfo() == 0:
+        return None
 
-    def count_valid_pixels(img):
-        valid_mask = img.select("B2").mask()
+    median_image = collection.median().clip(polygon)
 
-        pixel_count = valid_mask.reduceRegion(
+    valid_mask = median_image.select("B2").mask()
+
+    pixel_count = (
+        valid_mask.reduceRegion(
             reducer=ee.Reducer.sum(), geometry=polygon, scale=30, maxPixels=1e9
-        ).get("B2")
-
-        return img.set("valid_pixel_count", pixel_count)
-
-    clean_collection = mosaicked_collection.map(count_valid_pixels).filter(
-        ee.Filter.gt("valid_pixel_count", value=50)
+        )
+        .getInfo()
+        .get("B2")
     )
 
-    return clean_collection
+    if pixel_count is None or pixel_count < 50:
+        return None
+
+    year = ee.Date(end_date).get("year")
+    median_image = median_image.set(
+        {
+            "system:time_start": ee.Date.fromYMD(year, 9, 1).millis(),
+            "date": ee.Date.fromYMD(year, 9, 1).format("YYYY-MM-DD"),
+        }
+    )
+
+    return median_image
 
 
 def get_dem(roi: ee.Geometry) -> ee.Image:

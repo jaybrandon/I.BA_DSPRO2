@@ -9,7 +9,7 @@ import geopandas as gpd
 import pandas as pd
 from dotenv import load_dotenv
 from feature_extraction import extract_glacier_period_features
-from gee_data import get_dem, get_glacier_collection, initialize_gee
+from gee_data import get_dem, get_glacier_composite, initialize_gee
 
 BASE_DIR = Path(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -18,7 +18,7 @@ OUTPUT_DIR = BASE_DIR / "data" / "processed"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_ROWS = None
-MAX_THREADS = 3  # Dont go too high to avoid rate limiting from gee
+MAX_THREADS = 5  # Dont go too high to avoid rate limiting from gee
 
 
 def assign_satellite_label(date):
@@ -56,7 +56,7 @@ def process_observation(row_data):
     try:
         roi = ee.Geometry(row.geometry.__geo_interface__)
 
-        collection = get_glacier_collection(
+        composite = get_glacier_composite(
             sensor_type=sat_type,
             polygon=roi,
             start_date=row["observation_start"].strftime("%Y-%m-%d"),
@@ -64,14 +64,13 @@ def process_observation(row_data):
             cloud_threshold=40,
         )
 
-        count = collection.size().getInfo()
-        if count == 0:
-            print(f"[{idx + 1}] Skipping {obs_id}: No summer images found.")
+        if composite is None:
+            print(f"[{idx + 1}] Skipping {obs_id}: No valid summer images found.")
             return (local_numerical_rows, local_verification_list)
 
         dem = get_dem(roi)
 
-        results = extract_glacier_period_features(collection, dem, roi, obs_id)
+        results = extract_glacier_period_features(composite, dem, roi, obs_id)
 
         features = results.get("features")
         masks = results.get("masks")

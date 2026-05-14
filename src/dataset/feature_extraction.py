@@ -1,8 +1,10 @@
 import math
 
 import ee
+from retry import retry
 
 SCR_SLA_THRESHOLD = 0.6
+
 
 def extract_sla(
     snow_mask: ee.Image, ice_mask: ee.Image, dem: ee.Image, roi: ee.Geometry
@@ -211,32 +213,23 @@ def extract_per_image_features(
     )
 
 
+@retry(tries=10, delay=1, backoff=2)
 def extract_glacier_period_features(
-    collection: ee.ImageCollection, dem: ee.Image, polygon: ee.Geometry, obs_id: str
+    composite: ee.Image, dem: ee.Image, polygon: ee.Geometry, obs_id: str
 ):
-    feature_col = collection.map(
-        lambda img: extract_per_image_features(img, dem, polygon, obs_id)
-    )
+    feature = extract_per_image_features(composite, dem, polygon, obs_id).getInfo()
 
-    features = feature_col.getInfo()["features"]
-
-    clean_features = []
-    for f in features:
-        props = f["properties"]
-        if props.get("SLA") == -9999:
-            props["SLA"] = None
-        clean_features.append(props)
+    props = feature["properties"]
+    if props.get("SLA") == -9999:
+        props["SLA"] = None
 
     masks = (
-        collection.map(add_glacier_masks)
+        add_glacier_masks(composite)
         .select(["ndsi_mask", "snow_mask", "ice_mask"])
-        .median()
-        .gt(0.5)
-        .clip(polygon)
         .set("system:index", ee.String(str(obs_id)))
     )
 
     return {
-        "features": clean_features,
+        "features": [props],
         "masks": masks,
     }

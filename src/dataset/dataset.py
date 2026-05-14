@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 DATA_DIR = BASE_DIR / "data"
 
-VERSION = "v2.0"
+VERSION = "v3.0"
 
 OUTPUT_FILE = DATA_DIR / "processed" / f"glacier_ml_dataset_{VERSION}.parquet"
 
@@ -42,10 +42,6 @@ def build(start_year: int = 0, end_year: int = 0, skip_dl: bool = False):
 
 
 def data_cleaning(df):
-
-    # df = df.dropna(subset=["NDSI", "B2", "sla"]).copy()
-    # df = df[df["area_m2"] > 0]
-
     df["year"] = df["date"].str[:4].astype(int)
     df["doy"] = df["date"].str[-3:].astype(int)
 
