@@ -3,7 +3,7 @@ import math
 import ee
 from retry import retry
 
-SCR_SLA_THRESHOLD = 0.6
+SCR_SLA_THRESHOLD = 0.4
 
 
 def extract_sla(

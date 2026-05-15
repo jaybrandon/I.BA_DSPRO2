@@ -18,7 +18,7 @@ OUTPUT_DIR = BASE_DIR / "data" / "processed"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_ROWS = None
-MAX_THREADS = 5  # Dont go too high to avoid rate limiting from gee
+MAX_THREADS = 4  # Dont go too high to avoid rate limiting from gee
 
 
 def assign_satellite_label(date):
@@ -88,7 +88,7 @@ def process_observation(row_data):
         print(f"[{idx + 1}] Processed {obs_id}: Found {len(features)} images.")
 
     except Exception as e:
-        print(f"Error on {obs_id}: {e}")
+        print(f"[{idx + 1}] Error on {obs_id}: {e}")
 
     return local_numerical_rows, local_verification_list
 

@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 DATA_DIR = BASE_DIR / "data"
 
-VERSION = "v3.0"
+VERSION = "v3.1"
 
 OUTPUT_FILE = DATA_DIR / "processed" / f"glacier_ml_dataset_{VERSION}.parquet"
 
