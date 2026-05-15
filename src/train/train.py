@@ -44,6 +44,7 @@ NUMERICAL_FEATURES = [
     "B11_std",
     "B12_std",
     "SCR",
+    "SCA",
     "elev_mean",
     "slope_mean",
     "q1h_temp",
