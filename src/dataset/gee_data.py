@@ -105,7 +105,7 @@ def get_glacier_composite(
         ee.ImageCollection(config["id"])
         .filterBounds(polygon)
         .filterDate(start_date, end_date)
-        .filter(ee.Filter.calendarRange(8, 9, "month"))
+        .filter(ee.Filter.calendarRange(7, 9, "month"))
         .filter(ee.Filter.lt(str(config["cloud_prop"]), cloud_threshold))
         .map(lambda img: preprocess_image(img, sensor_type))
     )

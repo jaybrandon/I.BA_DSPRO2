@@ -18,7 +18,7 @@ OUTPUT_DIR = BASE_DIR / "data" / "processed"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_ROWS = None
-MAX_THREADS = 4  # Dont go too high to avoid rate limiting from gee
+MAX_THREADS = 3  # Dont go too high to avoid rate limiting from gee
 
 
 def assign_satellite_label(date):
