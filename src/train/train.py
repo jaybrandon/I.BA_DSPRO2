@@ -93,7 +93,7 @@ def log_perm_feature_importance(
     f, ax = plt.subplots(figsize=(10, 8))
 
     result = permutation_importance(
-        model, X, y, n_repeats=10, random_state=run.config["seed"], n_jobs=-1
+        model, X, y, n_repeats=30, random_state=run.config["seed"], n_jobs=-1
     )
     forest_importances = pd.DataFrame(
         [model.feature_names_in_, result.importances_mean]
