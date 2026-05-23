@@ -34,6 +34,7 @@ DATA_DIR = BASE_DIR / "data"
 TARGET = "mass_balance_annual"
 CATEGORICAL_FEATURES = ["satellite"]
 NUMERICAL_FEATURES = [
+    "sla_norm",
     "B2_mean",
     "B3_mean",
     "B4_mean",
@@ -42,6 +43,8 @@ NUMERICAL_FEATURES = [
     "B12_mean",
     "B11_std",
     "B12_std",
+    "SCR",
+    "SCA",
     "slope_mean",
     "q1h_temp",
     "q2h_temp",
@@ -254,7 +257,7 @@ def main(cfg: DictConfig):
     y = df[TARGET]
     groups = df["id"]
 
-    gss = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=cfg.seed)
+    gss = GroupShuffleSplit(n_splits=1, test_size=0.15, random_state=26)
     train_idx, test_idx = next(gss.split(X, y, groups))
 
     X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
