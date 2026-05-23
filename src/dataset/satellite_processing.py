@@ -46,12 +46,9 @@ def process_observation(row_data):
     obs_id = row["obs_id"]
     sat_type = row["satellite"]
 
-    local_numerical_rows = []
-    local_verification_list = []
-
     if sat_type is None:
         print(f"[{idx + 1}] Skipping {obs_id}: Pre-satellite era.")
-        return (local_numerical_rows, local_verification_list)
+        return None, None
 
     try:
         roi = ee.Geometry(row.geometry.__geo_interface__)
@@ -66,31 +63,19 @@ def process_observation(row_data):
 
         if composite is None:
             print(f"[{idx + 1}] Skipping {obs_id}: No valid summer images found.")
-            return (local_numerical_rows, local_verification_list)
+            return None, None
 
         dem = get_dem(roi)
 
-        results = extract_glacier_period_features(composite, dem, roi, obs_id)
+        feat, masks = extract_glacier_period_features(composite, dem, roi, obs_id)
 
-        features = results.get("features")
-        masks = results.get("masks")
+        print(f"[{idx + 1}] Processed {obs_id}")
 
-        for feat in features:
-            if feat:
-                combined_row = {**row.to_dict(), **feat}
-                local_numerical_rows.append(combined_row)
-
-        if masks:
-            local_verification_list.append(masks)
-        else:
-            print(f"[{idx + 1}] ---no mask saved---")
-
-        print(f"[{idx + 1}] Processed {obs_id}: Found {len(features)} images.")
-
+        return {**row.to_dict(), **feat}, masks
     except Exception as e:
         print(f"[{idx + 1}] Error on {obs_id}: {e}")
 
-    return local_numerical_rows, local_verification_list
+    return None, None
 
 
 def get_satellite_features(gdf: gpd.GeoDataFrame):
@@ -120,10 +105,13 @@ def get_satellite_features(gdf: gpd.GeoDataFrame):
         }
 
         for future in concurrent.futures.as_completed(futures):
-            num_rows, verif_list = future.result()
+            feat, masks = future.result()
 
-            all_numerical_rows.extend(num_rows)
-            image_verification_list.extend(verif_list)
+            if feat:
+                all_numerical_rows.append(feat)
+
+            if masks:
+                image_verification_list.append(masks)
 
     if all_numerical_rows:
         df = pd.DataFrame(all_numerical_rows)

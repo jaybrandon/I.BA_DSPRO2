@@ -213,7 +213,7 @@ def extract_per_image_features(
     )
 
 
-@retry(tries=10, delay=1, backoff=2)
+@retry(tries=5, delay=1, jitter=(1,3), backoff=2)
 def extract_glacier_period_features(
     composite: ee.Image, dem: ee.Image, polygon: ee.Geometry, obs_id: str
 ):
@@ -229,7 +229,4 @@ def extract_glacier_period_features(
         .set("system:index", ee.String(str(obs_id)))
     )
 
-    return {
-        "features": [props],
-        "masks": masks,
-    }
+    return props, masks

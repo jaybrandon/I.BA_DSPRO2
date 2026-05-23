@@ -115,17 +115,17 @@ def get_glacier_composite(
 
     median_image = collection.median().clip(polygon)
 
-    valid_mask = median_image.select("B2").mask()
+    valid_mask = median_image.select("B2").mask().unmask(0)
 
-    pixel_count = (
+    pixel_coverage = (
         valid_mask.reduceRegion(
-            reducer=ee.Reducer.sum(), geometry=polygon, scale=30, maxPixels=1e9
+            reducer=ee.Reducer.mean(), geometry=polygon, scale=30, maxPixels=1e9
         )
         .getInfo()
         .get("B2")
     )
 
-    if pixel_count is None or pixel_count < 50:
+    if pixel_coverage is None or pixel_coverage < 0.7:
         return None
 
     year = ee.Date(end_date).get("year")
