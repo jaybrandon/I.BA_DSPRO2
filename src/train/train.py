@@ -34,18 +34,9 @@ DATA_DIR = BASE_DIR / "data"
 TARGET = "mass_balance_annual"
 CATEGORICAL_FEATURES = ["satellite"]
 NUMERICAL_FEATURES = [
-    "sla_norm",
-    "B2_mean",
-    "B3_mean",
-    "B4_mean",
-    "B8_mean",
-    "B11_mean",
-    "B12_mean",
-    "B11_std",
-    "B12_std",
     "SCR",
     "SCA",
-    "slope_mean",
+    "sla_norm",
 ]
 
 
