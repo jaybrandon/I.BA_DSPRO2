@@ -1,6 +1,6 @@
 mode: tune
 seed: 42
-dataset: v3.2
+dataset: v3.3
 k_folds: 5
 
 wandb:
