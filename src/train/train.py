@@ -46,12 +46,6 @@ NUMERICAL_FEATURES = [
     "SCR",
     "SCA",
     "slope_mean",
-    "q1h_temp",
-    "q2h_temp",
-    "q3h_temp",
-    "q4h_temp",
-    "q1h_prec",
-    "q3h_prec",
 ]
 
 
@@ -93,7 +87,7 @@ def log_perm_feature_importance(
     f, ax = plt.subplots(figsize=(10, 8))
 
     result = permutation_importance(
-        model, X, y, n_repeats=30, random_state=run.config["seed"], n_jobs=-1
+        model, X, y, n_repeats=10, random_state=run.config["seed"], n_jobs=-1
     )
     forest_importances = pd.DataFrame(
         [model.feature_names_in_, result.importances_mean]
