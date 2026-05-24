@@ -5,6 +5,8 @@ import matplotlib
 
 matplotlib.use("Agg")
 
+from pickle import dump
+
 import hydra
 import matplotlib.pyplot as plt
 import numpy as np
@@ -30,6 +32,7 @@ BASE_DIR = Path(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 )
 DATA_DIR = BASE_DIR / "data"
+OUT_DIR = BASE_DIR / "models"
 
 TARGET = "mass_balance_annual"
 CATEGORICAL_FEATURES = ["satellite"]
@@ -88,12 +91,16 @@ def calc_metrics(target, preds, baseline_mean, baseline_median, prefix):
 
 
 def log_perm_feature_importance(
-    run: wandb.Run, model: RandomForestRegressor | Pipeline | XGBRegressor, X, y
+    run: wandb.Run,
+    model: RandomForestRegressor | Pipeline | XGBRegressor,
+    X: pd.DataFrame,
+    y: pd.Series,
+    n_repeats: int,
 ):
     f, ax = plt.subplots(figsize=(10, 8))
 
     result = permutation_importance(
-        model, X, y, n_repeats=10, random_state=run.config["seed"], n_jobs=-1
+        model, X, y, n_repeats=n_repeats, random_state=run.config["seed"], n_jobs=-1
     )
     forest_importances = pd.DataFrame(
         [model.feature_names_in_, result.importances_mean]
@@ -158,23 +165,33 @@ def train_xgb(
     conf: Config,
     X_train: pd.DataFrame,
     y_train: pd.Series,
-    X_val: pd.DataFrame,
-    y_val: pd.Series,
     seed: int,
+    X_val: pd.DataFrame | None = None,
+    y_val: pd.Series | None = None,
 ) -> XGBRegressor:
     conf = conf.copy()
     early_stopping_rounds = conf.pop("early_stopping_rounds", None)
     n_estimators = conf.pop("num_boost_round", 100)
 
-    model = XGBRegressor(
-        n_estimators=n_estimators,
-        early_stopping_rounds=early_stopping_rounds,
-        enable_categorical=True,
-        random_state=seed,
-        **conf,
-    )
+    if X_val is not None and y_val is not None:
+        model = XGBRegressor(
+            n_estimators=n_estimators,
+            early_stopping_rounds=early_stopping_rounds,
+            enable_categorical=True,
+            random_state=seed,
+            **conf,
+        )
 
-    model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=True)
+        model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=True)
+    else:
+        model = XGBRegressor(
+            n_estimators=n_estimators,
+            enable_categorical=True,
+            random_state=seed,
+            **conf,
+        )
+
+        model.fit(X_train, y_train, verbose=True)
 
     return model
 
@@ -202,14 +219,14 @@ def cross_validate(
         if conf["model"]["name"] == "rfr":
             model = train_rfr(model_conf, X_tr, y_tr, conf["seed"])
         else:
-            model = train_xgb(model_conf, X_tr, y_tr, X_val, y_val, conf["seed"])
+            model = train_xgb(model_conf, X_tr, y_tr, conf["seed"], X_val, y_val)
 
-            bst = model.get_booster()
+            bst: xgb.Booster = model.get_booster()
             log_xgb_feature_importance(run, bst, "weight")
             log_xgb_feature_importance(run, bst, "gain")
             log_xgb_feature_importance(run, bst, "cover")
 
-        log_perm_feature_importance(run, model, X_val, y_val)
+        log_perm_feature_importance(run, model, X_val, y_val, 10)
 
         val_preds = model.predict(X_val)
         train_preds = model.predict(X_tr)
@@ -234,6 +251,9 @@ def cross_validate(
 
         metrics = {**val_metrics, **train_metrics}
 
+        if conf["model"]["name"] == "xgb":
+            metrics["num_boost_round"] = bst.best_iteration
+
         results.append(metrics)
 
         run.log({f"fold_{fold}/{key}": value for key, value in metrics.items()})
@@ -241,6 +261,72 @@ def cross_validate(
     df_results = pd.DataFrame(results)
 
     run.log(df_results.mean().to_dict())
+
+
+def evaluate(
+    run: wandb.Run,
+    X_train: pd.DataFrame,
+    y_train: pd.Series,
+    X_test: pd.DataFrame,
+    y_test: pd.Series,
+    meta_test: pd.DataFrame,
+):
+    conf = run.config
+    model_conf = conf["model"].copy()
+    del model_conf["name"]
+
+    out_dir = OUT_DIR / run.id
+    out_dir.mkdir(parents=True)
+
+    if conf["model"]["name"] == "rfr":
+        model = train_rfr(model_conf, X_train, y_train, conf["seed"])
+
+        with open(out_dir / "model.pkl", "wb") as f:
+            dump(model, f, protocol=5)
+    else:
+        model = train_xgb(model_conf, X_train, y_train, conf["seed"])
+
+        bst = model.get_booster()
+        log_xgb_feature_importance(run, bst, "weight")
+        log_xgb_feature_importance(run, bst, "gain")
+        log_xgb_feature_importance(run, bst, "cover")
+
+        model.save_model(out_dir / "model.json")
+
+    log_perm_feature_importance(run, model, X_test, y_test, 50)
+
+    test_preds = model.predict(X_test)
+    train_preds = model.predict(X_train)
+
+    dummy_mean = DummyRegressor().fit(X_train, y_train)
+    dummy_median = DummyRegressor(strategy="median").fit(X_train, y_train)
+
+    test_metrics = calc_metrics(
+        y_test,
+        test_preds,
+        dummy_mean.predict(X_test),
+        dummy_median.predict(X_test),
+        "test",
+    )
+    train_metrics = calc_metrics(
+        y_train,
+        train_preds,
+        dummy_mean.predict(X_train),
+        dummy_median.predict(X_train),
+        "train",
+    )
+
+    metrics = {**test_metrics, **train_metrics}
+
+    run.log(metrics)
+
+    s_pred = pd.Series(test_preds, name="mb_pred", index=meta_test.index)
+
+    df_pred = pd.concat([meta_test, X_test, y_test, s_pred], axis=1).reset_index(drop=True)
+
+    df_pred.to_csv(out_dir / "predictions.csv")
+
+    run.log_artifact(out_dir)
 
 
 @hydra.main(version_base=None, config_path="conf", config_name="config")
@@ -256,6 +342,7 @@ def main(cfg: DictConfig):
     X = df[CATEGORICAL_FEATURES + NUMERICAL_FEATURES]
     y = df[TARGET]
     groups = df["id"]
+    years = df["year"]
 
     gss = GroupShuffleSplit(n_splits=1, test_size=0.15, random_state=26)
     train_idx, test_idx = next(gss.split(X, y, groups))
@@ -264,6 +351,7 @@ def main(cfg: DictConfig):
     y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
     groups_train = groups.iloc[train_idx]
     groups_test = groups.iloc[test_idx]
+    years_test = years.iloc[test_idx]
 
     with wandb.init(
         entity=cfg.wandb.entity,
@@ -285,6 +373,8 @@ def main(cfg: DictConfig):
 
         if conf["mode"] == "tune":
             cross_validate(run, X_train, y_train, groups_train)
+        else:
+            evaluate(run, X_train, y_train, X_test, y_test, pd.concat([groups_test, years_test], axis=1))
 
         run.save(BASE_DIR / "uv.lock")
 
