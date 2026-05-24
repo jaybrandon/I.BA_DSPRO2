@@ -44,17 +44,25 @@ NUMERICAL_FEATURES = [
     "B8_mean",
     "B11_mean",
     "B12_mean",
+    "B2_std",
+    "B3_std",
+    "B4_std",
+    "B8_std",
     "B11_std",
     "B12_std",
     "SCR",
     "SCA",
+    "elev_mean",
     "slope_mean",
+    "aspect_mean",
     "q1h_temp",
     "q2h_temp",
     "q3h_temp",
     "q4h_temp",
     "q1h_prec",
+    "q2h_prec",
     "q3h_prec",
+    "q4h_prec",
 ]
 
 
@@ -226,7 +234,7 @@ def cross_validate(
             log_xgb_feature_importance(run, bst, "gain")
             log_xgb_feature_importance(run, bst, "cover")
 
-        log_perm_feature_importance(run, model, X_val, y_val, 10)
+        log_perm_feature_importance(run, model, X_val, y_val, 50)
 
         val_preds = model.predict(X_val)
         train_preds = model.predict(X_tr)
