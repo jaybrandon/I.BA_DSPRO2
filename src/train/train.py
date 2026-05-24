@@ -104,19 +104,18 @@ def log_perm_feature_importance(
     X: pd.DataFrame,
     y: pd.Series,
     n_repeats: int,
+    fold: int,
 ):
     f, ax = plt.subplots(figsize=(10, 8))
 
     result = permutation_importance(
         model, X, y, n_repeats=n_repeats, random_state=run.config["seed"], n_jobs=-1
     )
-    forest_importances = pd.DataFrame(
-        [model.feature_names_in_, result.importances_mean]
-    ).T
-    forest_importances.columns = ["feature", "importance"]
+    importances = pd.DataFrame([model.feature_names_in_, result.importances_mean]).T
+    importances.columns = ["feature", "importance"]
 
     sns.barplot(
-        forest_importances.sort_values("importance", ascending=False),
+        importances.sort_values("importance", ascending=False),
         x="importance",
         y="feature",
         orient="h",
@@ -125,8 +124,10 @@ def log_perm_feature_importance(
     ax.set_title("Permutation Importance")
     plt.tight_layout()
 
-    run.log({"permutation_importance": wandb.Image(f)})
+    run.log({f"fold_{fold}/permutation_importance": wandb.Image(f)})
     plt.close(f)
+
+    return importances
 
 
 def log_xgb_feature_importance(run: wandb.Run, bst: xgb.Booster, type: str):
@@ -217,6 +218,7 @@ def cross_validate(
 
     gkf = GroupKFold(n_splits=conf["k_folds"])
     results = []
+    importances = []
 
     for fold, (train_idx, val_idx) in enumerate(
         gkf.split(X_train_reset, y_train_reset, groups_train_reset)
@@ -234,7 +236,9 @@ def cross_validate(
             log_xgb_feature_importance(run, bst, "gain")
             log_xgb_feature_importance(run, bst, "cover")
 
-        log_perm_feature_importance(run, model, X_val, y_val, 50)
+        importances.append(
+            log_perm_feature_importance(run, model, X_val, y_val, 50, fold)
+        )
 
         val_preds = model.predict(X_val)
         train_preds = model.predict(X_tr)
@@ -269,6 +273,41 @@ def cross_validate(
     df_results = pd.DataFrame(results)
 
     run.log(df_results.mean().to_dict())
+
+    importances_df = pd.concat(importances, ignore_index=True)
+
+    importance = importances_df.groupby("feature", as_index=False).agg(
+        mean_importance=("importance", "mean"),
+        std_importance=(
+            "importance",
+            "std",
+        ),
+    )
+
+    f, ax = plt.subplots(ncols=2, figsize=(20, 8))
+
+    sns.barplot(
+        importance.sort_values("mean_importance", ascending=False),
+        x="mean_importance",
+        y="feature",
+        orient="h",
+        ax=ax[0],
+    )
+    ax[0].set_title("Mean Permutation Importance")
+
+    sns.barplot(
+        importance.sort_values("std_importance", ascending=False),
+        x="std_importance",
+        y="feature",
+        orient="h",
+        ax=ax[1],
+    )
+    ax[1].set_title("Std Permutation Importance")
+    plt.tight_layout()
+
+    run.log({"total_permutation_importance": wandb.Image(f)})
+    plt.close(f)
+
 
 
 def evaluate(
@@ -330,7 +369,9 @@ def evaluate(
 
     s_pred = pd.Series(test_preds, name="mb_pred", index=meta_test.index)
 
-    df_pred = pd.concat([meta_test, X_test, y_test, s_pred], axis=1).reset_index(drop=True)
+    df_pred = pd.concat([meta_test, X_test, y_test, s_pred], axis=1).reset_index(
+        drop=True
+    )
 
     df_pred.to_csv(out_dir / "predictions.csv")
 
@@ -382,7 +423,14 @@ def main(cfg: DictConfig):
         if conf["mode"] == "tune":
             cross_validate(run, X_train, y_train, groups_train)
         else:
-            evaluate(run, X_train, y_train, X_test, y_test, pd.concat([groups_test, years_test], axis=1))
+            evaluate(
+                run,
+                X_train,
+                y_train,
+                X_test,
+                y_test,
+                pd.concat([groups_test, years_test], axis=1),
+            )
 
         run.save(BASE_DIR / "uv.lock")
 
