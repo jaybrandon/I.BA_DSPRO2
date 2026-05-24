@@ -3,11 +3,11 @@ early_stopping_rounds: 50
 num_boost_round: 2000
 
 objective: reg:squarederror
-learning_rate: 0.037
-gamma: 2.6
-max_depth: 8
-min_child_weight: 5
-subsample: 0.52
-colsample_bytree: 1
-reg_lambda: 1.63
-reg_alpha: 1.5
+learning_rate: 0.005809604554747175
+gamma: 0.26936685421186823
+max_depth: 11
+min_child_weight: 0
+subsample: 0.555372672938759
+colsample_bytree: 0.603857210059651
+reg_lambda: 0.10865880798450989
+reg_alpha: 0.3427815054189176
