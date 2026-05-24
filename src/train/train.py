@@ -230,7 +230,7 @@ def cross_validate(
             log_xgb_feature_importance(run, bst, "cover")
 
         importances.append(
-            log_perm_feature_importance(run, model, X_val, y_val, 50, fold)
+            log_perm_feature_importance(run, model, X_val, y_val, 10, fold)
         )
 
         val_preds = model.predict(X_val)
