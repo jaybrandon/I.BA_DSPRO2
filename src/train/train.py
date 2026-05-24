@@ -97,7 +97,7 @@ def log_perm_feature_importance(
     X: pd.DataFrame,
     y: pd.Series,
     n_repeats: int,
-    fold: int,
+    fold: int | None = None,
 ):
     f, ax = plt.subplots(figsize=(10, 8))
 
@@ -117,7 +117,10 @@ def log_perm_feature_importance(
     ax.set_title("Permutation Importance")
     plt.tight_layout()
 
-    run.log({f"fold_{fold}/permutation_importance": wandb.Image(f)})
+    if fold is not None:
+        run.log({f"fold_{fold}/permutation_importance": wandb.Image(f)})
+    else:
+        run.log({"permutation_importance": wandb.Image(f)})
     plt.close(f)
 
     return importances
@@ -300,7 +303,6 @@ def cross_validate(
 
     run.log({"total_permutation_importance": wandb.Image(f)})
     plt.close(f)
-
 
 
 def evaluate(
