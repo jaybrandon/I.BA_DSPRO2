@@ -1,9 +1,9 @@
 name: rfr
-n_estimators: 115
+n_estimators: 159
 criterion: squared_error
 max_depth: null
-max_features: log2
-min_samples_split: 5
-min_samples_leaf: 2
+max_features: sqrt
+min_samples_split: 4
+min_samples_leaf: 1
 bootstrap: True
-max_samples: 0.93
+max_samples: 0.9951534828197924
