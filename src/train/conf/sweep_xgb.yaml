@@ -1,0 +1,39 @@
+program: train.py
+method: bayes
+metric:
+  name: val_rmse
+parameters:
+  model.objective:
+    value: reg:squarederror
+  model.learning_rate:
+    distribution: log_uniform_values
+    min: 0.005
+    max: 0.3
+  model.gamma: 
+    min: 0.0
+    max: 5.0
+  model.max_depth: 
+    min: 5
+    max: 12
+  model.min_child_weight:
+    min: 0
+    max: 10
+  model.subsample:
+    min: 0.4
+    max: 0.8
+  model.colsample_bytree: 
+    min: 0.5
+    max: 1.0
+  model.reg_lambda:
+    min: 0.0
+    max: 2.0
+  model.reg_alpha:
+    min: 0.0
+    max: 2.0
+command:
+- uv
+- run
+- -m
+- src.train.train
+- +model=xgb
+- ${args_no_hyphens}

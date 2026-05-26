@@ -4,12 +4,13 @@ import warnings
 from pathlib import Path
 
 import pandas as pd
+import geopandas as gpd
 import requests
 import typer
 import xarray as xr
 from tqdm import tqdm
 
-DATA_DIR = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + "/data/")
+DATA_DIR = Path(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) + "/data/")
 
 
 def _convert_time(ds):
@@ -24,7 +25,7 @@ def _convert_time(ds):
 def extract_precipitation(
     start_year: int, end_year: int, skip_dl: bool = False
 ) -> xr.Dataset:
-    dir = DATA_DIR / "tmp" / "rhiresm"
+    dir = DATA_DIR / "raw" / "rhiresm"
 
     if not skip_dl:
         shutil.rmtree(dir, ignore_errors=True)
@@ -64,7 +65,7 @@ def transform_precipitation(ds: xr.Dataset) -> xr.Dataset:
 def extract_temperature(
     start_year: int, end_year: int, skip_dl: bool = False
 ) -> xr.Dataset:
-    dir = DATA_DIR / "tmp" / "tabsm"
+    dir = DATA_DIR / "raw" / "tabsm"
 
     if not skip_dl:
         shutil.rmtree(dir, ignore_errors=True)
@@ -110,7 +111,7 @@ def get_data(start_year: int, end_year: int, skip_dl: bool = False) -> xr.Datase
     return prec.merge(temp, compat="override")
 
 
-def get_climate_features(target: pd.DataFrame, climate: xr.Dataset) -> pd.DataFrame:
+def get_climate_features(target: gpd.GeoDataFrame, climate: xr.Dataset) -> gpd.GeoDataFrame:
     warnings.filterwarnings(
         "ignore",
         message="angle from rectified to skew grid parameter lost in conversion to CF",
@@ -161,7 +162,10 @@ def _extract_features(row, climate: xr.Dataset):
 def main(start_year: int = 1961, end_year: int = 2025, skip_dl: bool = False):
     ds = get_data(start_year, end_year, skip_dl)
 
-    ds.to_netcdf(DATA_DIR / f"rhiresm_tabsm_quarterly_{start_year}-{end_year}.nc")
+    path = DATA_DIR / 'processed' / f"rhiresm_tabsm_quarterly_{start_year}-{end_year}.nc"
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    ds.to_netcdf(path)
 
 
 if __name__ == "__main__":
